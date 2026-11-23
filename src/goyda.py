@@ -1,21 +1,20 @@
-# Запуск: python3 src/stage1.py config.ini
 import configparser
 import os
 import sys
 
-CAPITALS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-DIGITS = "0123456789"
-NAME_SYMBOLS = "abcdefghijklmnopqrstuvwxyz" + CAPITALS + DIGITS + "-_"
+BIG_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+GOOD_SYMBOLS = "abcdefghijklmnopqrstuvwxyz0123456789-_" + BIG_LETTERS
+
 
 def read_config(path):
     if not os.path.isfile(path):
         raise ValueError("файл конфигурации не найден: " + path)
-    parser = configparser.ConfigParser(interpolation=None)
+    parser = configparser.ConfigParser()
     try:
         parser.read(path, encoding="utf-8")
     except configparser.Error:
         raise ValueError("неверный формат INI-файла")
-    if not parser.has_section("depgraph"):
+    if "depgraph" not in parser:
         raise ValueError("в файле нет секции [depgraph]")
     return parser["depgraph"]
 
@@ -27,62 +26,50 @@ def get_value(section, key):
     return value
 
 
-def check_test_values(package, repository):
-    for letter in package:
-        if letter not in CAPITALS:
+def check_name(name, test_mode):
+    for letter in name:
+        if test_mode == "true" and letter not in BIG_LETTERS:
             raise ValueError("в тестовом режиме имя пакета - большие буквы")
-    if not os.path.isfile(repository):
-        raise ValueError("файл тестового репозитория не найден")
+        if letter not in GOOD_SYMBOLS:
+            raise ValueError("неверное имя пакета: " + name)
 
 
-def check_real_values(package, repository): #проверить имя пакета и адрес реп
-    if package[0] in DIGITS + "-_":
-        raise ValueError("имя пакета должно начинаться с буквы")
-    for letter in package:
-        if letter not in NAME_SYMBOLS:
-            raise ValueError("неверное имя пакета: " + package)
-    if not repository.startswith(("http://", "https://")):
-        raise ValueError("адрес репозитория должен начинаться с http(s)://")
+def check_repository(repository, test_mode):
+    if test_mode == "true":
+        if not os.path.isfile(repository):
+            raise ValueError("файл тестового репозитория не найден")
+    elif not repository.startswith("http"):
+        raise ValueError("адрес репозитория должен начинаться с http")
 
 
-def check_config(section): #вернуть в виде словаря
-    package = get_value(section, "package_name")
-    repository = get_value(section, "repository_url")
-    mode = get_value(section, "test_mode")
-    text = section.get("filter_substring", "").strip()
-    if mode not in ("true", "false"):
+def load_config(path):
+    section = read_config(path)
+    config = {}
+    config["package_name"] = get_value(section, "package_name")
+    config["repository_url"] = get_value(section, "repository_url")
+    config["test_mode"] = get_value(section, "test_mode")
+    config["filter_substring"] = section.get("filter_substring", "").strip()
+    if config["test_mode"] != "true" and config["test_mode"] != "false":
         raise ValueError("test_mode должен быть true или false")
-    if " " in text:
+    if " " in config["filter_substring"]:
         raise ValueError("filter_substring не должен содержать пробелов")
-    if mode == "true":
-        check_test_values(package, repository)
-    else:
-        check_real_values(package, repository)
-    return {
-        "package_name": package,
-        "repository_url": repository,
-        "test_mode": mode,
-        "filter_substring": text,
-    }
-
-
-def print_config(config): #ключ-значение
-    for key in config:
-        print(key, "=", config[key])
+    check_name(config["package_name"], config["test_mode"])
+    check_repository(config["repository_url"], config["test_mode"])
+    return config
 
 
 def main(path):
     try:
-        config = check_config(read_config(path))
+        config = load_config(path)
     except ValueError as error:
-        print("Ошибка:", error, file=sys.stderr)
-        return 2
-    print_config(config)
-    return 0
+        print("Ошибка:", error)
+        return
+    for key in config:
+        print(key, "=", config[key])
 
 
 if __name__ == "__main__":
-    config_path = "config.ini"
-    if sys.argv[1:]:
-        config_path = sys.argv[1]
-    sys.exit(main(config_path))
+    if len(sys.argv) > 1:
+        main(sys.argv[1])
+    else:
+        main("config.ini")
